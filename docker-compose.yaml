@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+  postgresql:
+    image: postgres:13.3
+    container_name: postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tslead
+      POSTGRES_PASSWORD: code
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sqlinit.sql
+    ports:
+      - 5432:5432
+    networks:
+      - tsleadcode
+
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+    command: gunicorn asgi:create_app -n tsleadcode -k uvicorn.workers.UvicornWorker -b 0.0.0.0:5000 --log-file=- --forwarded-allow-ips="*"
+    volumes:
+      - .:/code
+    environment:
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: tslead
+      POSTGRES_PASSWORD: code
+      POSTGRES_DB: tsleadcode
+      VIRTUAL_HOST: robotalf.com
+      LETSENCRYPT_HOST: robotalf.com
+      VIRTUAL_PORT: 5000
+    depends_on:
+      - postgresql
+    links:
+      - postgresql:postgresql
+    networks:
+      - tsleadcode
+
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    networks:
+      - tsleadcode
+
+  acme-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-proxy-acme
+    environment:
+      - DEFAULT_EMAIL=admins@robotalf.com
+    volumes_from:
+      - nginx-proxy
+    volumes:
+      - certs:/etc/nginx/certs:rw
+      - acme:/etc/acme.sh
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - tsleadcode
+
+networks:
+  tsleadcode:
+    driver: bridge
+
+volumes:
+  certs:
+  vhost:
+  html:
+  acme:
